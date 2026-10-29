@@ -131,8 +131,7 @@ def main() -> None:
             if error < best:
                 best = error
                 torch.save({
-                    "model": model.state_dict(), "kind": args.model,
-                    "data_scale": scale, "step": step, "validation_error": error,
+                    "model": model.state_dict(), "kind": args.model, "data_scale": scale,
                 }, args.output / "best.pt")
             print(f"step={step} loss={loss.item():.6g} validation={error:.6f} best={best:.6f}", flush=True)
 

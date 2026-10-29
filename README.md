@@ -1,8 +1,11 @@
 # Born networks
 
-Training code for BornNet, LinearBornNet, and BornAE. The shared attention
-U-Net processes two 100×100 measurement arrays and reconstructs a real
-100×100 contrast image, μ = n² − 1.
+Training code for BornNet, LinearBornNet, and BornAE from
+[Neural network enhancement of the Born approximation](https://arxiv.org/abs/2610.32764),
+by J. Ma, A. Desai, T. Lähivaara, and P. Monk.
+
+Each network takes the real and imaginary parts of a 100×100 scattering-data
+array and reconstructs the real contrast μ = n² − 1 on a 100×100 image grid.
 
 | Model | Data-to-image map | Training loss |
 | --- | --- | --- |
@@ -26,24 +29,26 @@ uv run train.py --model BornAE --data data --operators data/operators.npz --outp
 ```
 
 CUDA is used when available. Add `--amp` for bfloat16 neural computations,
-or `--device cpu` for CPU execution. The defaults are 25,000 Adam updates,
-batch size 16, learning rate 3×10⁻⁴, and gradient clipping at norm 1. Training
-uses clean inputs and validates every 1,000 steps, saving the lowest mean
-relative contrast error as `best.pt`. These are the standalone driver's
-settings, not the different schedules and budgets of every historical run.
+or `--device cpu` for CPU execution. The default step count, batch size,
+and learning rate follow the near-field experiments in Section 5:
+25,000 Adam updates, batches of 16, and a learning rate of 3×10⁻⁴.
+Gradients are clipped at norm 1. Every 1,000 steps, the script evaluates
+the mean relative contrast error on the validation set and saves the
+best model to `best.pt`.
 
 ## Data and operators
 
 Supply separate `data/train.npz` and `data/val.npz` files. Each contains:
 
 - `fields`: complex array `(N, 10000)` of scattered-field measurements.
-- `truth`: real array `(N, 1, 100, 100)` of contrasts, **not** squared
-  refractive indices. Validation targets must have nonzero contrast norm.
+- `truth`: real contrast μ = n² − 1, with shape `(N, 1, 100, 100)`.
+  Validation targets must have nonzero contrast norm.
 
-The measurements become two arrays containing real and imaginary parts.
-Array reshaping uses NumPy/PyTorch C order. Operator rows must follow the
-same measurement ordering, and columns must follow the flattened image
-ordering. Supply noiseless training and validation data for the paper setup.
+Measurements and images are flattened in C order, with all real measurements
+stacked before all imaginary measurements. The forward matrix has measurement
+rows and image columns, and the inverse has image rows and measurement
+columns. Use this same ordering in the data and operators.
+Supply noiseless training and validation data for the paper experiments.
 
 `operators.npz` contains the fixed operators in unnormalized field units:
 

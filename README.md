@@ -1,77 +1,97 @@
 # Born networks
 
-Training code for BornNet, LinearBornNet, and BornAE from
-[Neural network enhancement of the Born approximation](https://arxiv.org/abs/2610.32764),
+PyTorch training code for BornNet, LinearBornNet, and BornAE, the three
+networks introduced in
+[Neural network enhancement of the Born approximation](https://arxiv.org/abs/2610.32764)
 by J. Ma, A. Desai, T. Lähivaara, and P. Monk.
 
-Each network takes the real and imaginary parts of a 100×100 scattering-data
-array and reconstructs the real contrast μ = n² − 1 on a 100×100 image grid.
+Each network takes the real and imaginary parts of a 100×100 array of
+scattering measurements and reconstructs the contrast μ = n² − 1 on a 100×100
+grid, where n is the refractive index. A U-Net corrects the measurements, an
+inverse layer maps them to an intermediate image, and a residual network
+refines that image. The U-Net and refiner are the same in all three networks,
+which differ in the inverse layer and the training loss:
 
-| Model | Data-to-image map | Training loss |
+| Model | Inverse layer | Training loss |
 | --- | --- | --- |
-| BornNet | Fixed Born inverse | Final and intermediate image MSE |
-| LinearBornNet | Learned rank-1,024 linear map | Final and intermediate image MSE |
-| BornAE | LinearBornNet encoder and Born-based field decoder | Image MSE + physical-field MSE + 10⁻⁴ mean absolute contrast |
+| BornNet | Fixed regularized Born inverse | Final-image MSE + intermediate-image MSE |
+| LinearBornNet | Learned linear map of rank ≤ 1,024 | Final-image MSE + intermediate-image MSE |
+| BornAE | Same as LinearBornNet | Final-image MSE + field MSE + 10⁻⁴ × mean absolute contrast |
+
+The BornAE field loss uses a decoder that runs only during training. It applies
+the forward Born matrix to the reconstruction and corrects the resulting field
+with a small convolutional network.
 
 `models.py` defines the networks, `blocks.py` their shared layers, and
-`train.py` the training loop. Data, fixed operators, trained weights, forward
-solvers, and evaluation/plotting scripts are not included.
+`train.py` the training loop.
 
-## Run
+## Training
 
-Install [uv](https://docs.astral.sh/uv/), then:
+Install [uv](https://docs.astral.sh/uv/), then run:
 
 ```sh
 uv sync --python 3.11
-uv run train.py --model LinearBornNet --data data --operators data/operators.npz --output runs/linear
 uv run train.py --model BornNet --data data --operators data/operators.npz --output runs/born
+uv run train.py --model LinearBornNet --data data --operators data/operators.npz --output runs/linear
 uv run train.py --model BornAE --data data --operators data/operators.npz --output runs/ae
 ```
 
-CUDA is used when available. Add `--amp` for bfloat16 neural computations,
-or `--device cpu` for CPU execution. The default step count, batch size,
-and learning rate follow the near-field experiments in Section 5:
-25,000 Adam updates, batches of 16, and a learning rate of 3×10⁻⁴.
-Gradients are clipped at norm 1. Every 1,000 steps, the script evaluates
-the mean relative contrast error on the validation set and saves the
-best model to `best.pt`.
+The script trains with Adam and clips gradients to norm 1. Its defaults match
+the near-field experiments in Section 5 of the paper: 25,000 steps, batch size
+16, learning rate 3×10⁻⁴, and a validation check every 1,000 steps. Each check
+computes the mean relative contrast error on the validation set, and `best.pt`
+in the output directory keeps the model with the lowest error.
 
-## Data and operators
+CUDA is used when available, and `--device cpu` forces the CPU. On a GPU with
+bfloat16 support, `--amp` runs the learned layers under bfloat16 autocast.
 
-Supply separate `data/train.npz` and `data/val.npz` files. Each contains:
+## Data
 
-- `fields`: complex array `(N, 10000)` of scattered-field measurements.
-- `truth`: real contrast μ = n² − 1, with shape `(N, 1, 100, 100)`.
-  Validation targets must have nonzero contrast norm.
+The `--data` directory contains `train.npz` and `val.npz`, each with two arrays:
 
-Measurements and images are flattened in C order, with all real measurements
-stacked before all imaginary measurements. The forward matrix has measurement
-rows and image columns, and the inverse has image rows and measurement
-columns. Use this same ordering in the data and operators.
-Supply noiseless training and validation data for the paper experiments.
+- `fields`: complex `(N, 10000)` scattered-field measurements. Each row is a
+  100×100 measurement array flattened in C order.
+- `truth`: real `(N, 1, 100, 100)` contrasts μ.
 
-`operators.npz` contains the fixed operators in unnormalized field units:
+Validation contrasts must be nonzero, since the validation error is relative to
+their norm. The paper trains and validates on noiseless data and adds noise
+only to test data.
 
-- `inverse`: real `(10000, 20000)` matrix, required only for BornNet.
-- `forward`: real `(20000, 10000)` matrix, required only for BornAE.
-- `data_scale`: optional positive scalar used to normalize the inputs.
+## Operators
 
-For a complex Born matrix B, the real forward matrix stacks Re(B) above
-Im(B). For an existing complex inverse T whose reconstruction is Re(Ty),
-the equivalent real inverse is `[Re(T), −Im(T)]`. Alternatively, supply
-the real-contrast Tikhonov inverse directly. The trainer does not build or
-regularize these matrices.
+BornNet and BornAE need fixed operators, passed through `--operators` as an
+`.npz` file:
 
-Without a supplied scale, inputs are unnormalized. For near-field data,
-use the RMS of the real and imaginary **training** channels, either in
-`operators.npz` or through `--data-scale`. Pass the same scale to all models
-(LinearBornNet can read it from `--operators` without loading a matrix).
-Contrast targets are never scaled. The inverse layer applies sK, the BornAE
-decoder applies B/s, and the field loss multiplies normalized-field MSE by
-s² to retain physical-field units. Far-field inputs can use s = 1.
+- `inverse`: real `(10000, 20000)` matrix K, used by BornNet.
+- `forward`: real `(20000, 10000)` matrix A, used by BornAE.
+- `data_scale`: optional input scale s.
 
-Fixed operators are excluded from `best.pt`. To reload BornNet or BornAE,
-construct the model with the same operators and saved `data_scale`, then
-load the saved `model` state dictionary and call `model.eval()`. Divide
-input channels by the saved scale before inference. `model.encode(x)[0]`
-returns the contrast without running the BornAE decoder.
+Both matrices index image pixels in C order and place the real parts of the
+measurements before the imaginary parts. For a complex Born matrix B, A stacks
+Re(B) above Im(B). The far-field experiments reconstruct Re(Ty) with a complex
+Tikhonov inverse T, which corresponds to K = [Re(T), −Im(T)]. The near-field
+experiments use the Tikhonov inverse of A as K.
+
+## Input scaling
+
+The script divides the measurements by a scale s. It reads s from
+`--data-scale`, falling back to `data_scale` in the operators file and then
+to 1. The operators stay in the original field units, because the networks
+account for s: the BornNet inverse layer applies sK, the BornAE decoder applies
+A/s, and the BornAE field loss is s² times the normalized field MSE, which
+equals the field MSE in the original units. Contrasts are not scaled.
+
+The far-field experiments use s = 1. The near-field experiments use one s for
+all three models: the RMS of the real and imaginary parts of the training
+measurements. LinearBornNet reads only `data_scale` from `--operators`.
+
+## Loading a checkpoint
+
+All three models are built by the `BornNet` class, selected by its `kind`
+argument. `best.pt` stores the weights under `model`, together with `kind` and
+`data_scale`, but not the fixed operators. To reload a model, construct
+`BornNet(kind, inverse=..., forward=..., data_scale=...)` with the operators
+used in training, load the saved weights, and call `model.eval()`. The input is
+an `(N, 2, 100, 100)` tensor of real and imaginary parts, divided by
+`data_scale` as in training. `model.encode(x)` returns the reconstruction and
+the intermediate image without running the BornAE decoder.

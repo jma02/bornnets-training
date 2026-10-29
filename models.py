@@ -1,4 +1,4 @@
-"""BornNet, LinearBornNet, and BornAE for 100-by-100 measurements and images."""
+"""Define the BornNet class, which builds BornNet, LinearBornNet, and BornAE."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from blocks import Downsample, ResBlock, Upsample
 
 
 class BornNet(nn.Module):
-    """Shared architecture with fixed or learned inverse and optional field decoder.
+    """``kind`` chooses BornNet, LinearBornNet, or BornAE.
 
-    ``inverse`` maps 20,000 stacked real/imaginary measurements to 10,000
-    real contrast pixels. ``forward`` maps contrast pixels to the same stacked
-    measurement layout. Both operators are supplied in unnormalized field units.
-    Inputs are divided by ``data_scale`` before being passed to this model.
+    ``inverse`` maps the 20,000 stacked real and imaginary measurements to the
+    10,000 contrast pixels. ``forward`` maps the pixels to the same stacked
+    measurements. Neither matrix includes ``data_scale``. Divide the inputs by
+    ``data_scale`` before passing them to the model.
     """
 
     def __init__(

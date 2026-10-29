@@ -1,4 +1,4 @@
-"""Convolutional and attention blocks shared by the three Born networks."""
+"""Define the convolutional and attention blocks that the three networks share."""
 
 from __future__ import annotations
 

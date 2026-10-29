@@ -47,7 +47,7 @@ def evaluate(
         total += (errors / norms).sum().item()
     error = total / len(fields)
     if not math.isfinite(error):
-        raise FloatingPointError("Nonfinite validation error; targets must have nonzero contrast norm")
+        raise FloatingPointError("Nonfinite validation error. Every validation contrast must be nonzero.")
     return error
 
 
@@ -55,8 +55,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", choices=("BornNet", "LinearBornNet", "BornAE"), required=True)
     parser.add_argument("--data", type=Path, required=True, help="Directory containing train.npz and val.npz")
-    parser.add_argument("--operators", type=Path, help="NPZ with inverse, forward, and optional data_scale")
-    parser.add_argument("--data-scale", type=float, help="Input scale; overrides data_scale from --operators (default 1)")
+    parser.add_argument("--operators", type=Path, help="Operator file with inverse, forward, and data_scale")
+    parser.add_argument("--data-scale", type=float, help="Input scale that overrides data_scale in the operator file")
     parser.add_argument("--output", type=Path, required=True, help="New directory for best.pt")
     parser.add_argument("--steps", type=int, default=25000)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -65,7 +65,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--amp", action="store_true", help="Run learned layers under bfloat16 autocast (CUDA only)")
+    parser.add_argument("--amp", action="store_true", help="Run the learned layers under bfloat16 autocast on CUDA")
     args = parser.parse_args()
     if min(args.steps, args.batch_size, args.eval_every, args.threads) < 1:
         parser.error("steps, batch-size, eval-every, and threads must be positive")
